@@ -20,7 +20,7 @@ class com.theck.GodMode.GodMode
 	static var debugMode:Boolean = false;
 	
 	// Version
-	static var version:String = "0.1";
+	static var version:String = "0.2";
 	
 	// Signals
 	//static var SubtitleSignal:Signal;
@@ -58,6 +58,7 @@ class com.theck.GodMode.GodMode
 		Config.NewSetting("fontsize", 30, "");
 		Config.NewSetting("text", DEFAULT_TEXT, "");
 		Config.NewSetting("color", DEFAULT_COLOR, "");
+		Config.NewSetting("textlog", false, "");
 		
 		// Create GUI
 		clip = m_swfRoot.createEmptyMovieClip("GodMode", m_swfRoot.getNextHighestDepth());
@@ -285,15 +286,28 @@ class com.theck.GodMode.GodMode
 		if ( buffId == 9257112 ) {
 			auto_loader_counter++;
 			UpdateDisplay();
-			Debug("God Mode Enabled - proc " + auto_loader_counter);
+			if ( Config.GetValue("textlog") ) {
+				com.GameInterface.UtilsBase.PrintChatText("GM: Enabled - proc " + auto_loader_counter);
+			}
 		}
 	}
 	
 	private function CombatMonitor(state:Boolean) {
 		if ( ! state ) {
-			auto_loader_counter = 0;
-			Debug("Left Combat - Auto Loader Counter reset");
+			// if you end combat with an Auto-Loader buff, you retain the bonus for next combat
+			if ( m_player.m_InvisibleBuffList[9257112] ) {
+				auto_loader_counter = 1;
+			}
+			// otherwise you lose it
+			else {
+				auto_loader_counter = 0;
+			}
+			
 			UpdateDisplay();
+			
+			if ( Config.GetValue("textlog") ) {
+				com.GameInterface.UtilsBase.PrintChatText("GM: Left Combat - proc " + auto_loader_counter);
+			}
 		}		
 	}
 	
