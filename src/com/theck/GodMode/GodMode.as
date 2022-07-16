@@ -326,7 +326,7 @@ class com.theck.GodMode.GodMode
 					IncrementBFAggregator();				
 				}
 				else {
-					setTimeout(Delegate.create(this, IncrementBFAggregator), 50);
+					setTimeout(Delegate.create(this, IncrementBFAggregator), 100);
 					Debug("OCT: triggered before combat");
 				}	
 			}
@@ -372,6 +372,7 @@ class com.theck.GodMode.GodMode
 				com.GameInterface.UtilsBase.PrintChatText("GM: Enabled - proc " + auto_loader_counter);
 			}
 		}
+		
 		// log grenades
 		else if ( id == 9255809 ) {
 			if ( ! grenade_aggregator[auto_loader_counter] ) {
