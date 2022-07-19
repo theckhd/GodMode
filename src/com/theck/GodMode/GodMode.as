@@ -24,7 +24,7 @@ class com.theck.GodMode.GodMode
 	static var debugMode:Boolean = false;
 	
 	// Version
-	static var version:String = "0.5";
+	static var version:String = "0.55";
 	
 	// Signals
 	//static var SubtitleSignal:Signal;
