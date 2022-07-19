@@ -3,6 +3,7 @@
 * @author theck
 */
 
+import com.GameInterface.WaypointInterface;
 import com.Utils.Archive;
 import com.GameInterface.Game.Character;
 import com.Utils.ID32;
@@ -321,7 +322,9 @@ class com.theck.GodMode.GodMode
 		// filter on type, 32 means the cooldown has started
 		if ( last_used_id == 6806479 && id == 6806479 && type == 32 ) {
 			
+			// don't count this BF if grenade is already active
 			if ( ! m_player.m_InvisibleBuffList[9255809] ) {
+				
 				if ( m_player.IsInCombat() ) {
 					IncrementBFAggregator();				
 				}
@@ -461,6 +464,11 @@ class com.theck.GodMode.GodMode
 		}
 	}
 	
+	private function ResetAutoLoaderCounter() {
+		auto_loader_counter = 0;
+		Debug("RALC: alc=" + auto_loader_counter);
+	}
+	
 	
 	//////////////////////////////////////////////////////////
 	// Reporting
@@ -564,6 +572,8 @@ class com.theck.GodMode.GodMode
 			m_player.SignalInvisibleBuffAdded.Connect(OnInvisibleBuffAdded, this);
 			Shortcut.SignalCooldownTime.Connect(OnCooldownTime, this);
 			Shortcut.SignalShortcutUsed.Connect(OnShortcutUsed, this);
+			WaypointInterface.SignalPlayfieldChanged.Connect(ResetAutoLoaderCounter, this);
+			
 			
 			// not used
 			//m_player.SignalCommandStarted.Connect(OnCommandStarted, this);
@@ -579,6 +589,7 @@ class com.theck.GodMode.GodMode
 			m_player.SignalInvisibleBuffAdded.Disconnect(OnInvisibleBuffAdded, this);
 			Shortcut.SignalCooldownTime.Disconnect(OnCooldownTime, this);
 			Shortcut.SignalShortcutUsed.Disconnect(OnShortcutUsed, this);
+			WaypointInterface.SignalPlayfieldChanged.Disconnect(ResetAutoLoaderCounter, this);
 		}
 	}
 	
