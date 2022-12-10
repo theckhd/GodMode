@@ -16,15 +16,13 @@ import com.GameInterface.Inventory;
 import com.GameInterface.InventoryItem;
 import com.Utils.GlobalSignal;
 import com.GameInterface.Game.Shortcut;
-import com.GameInterface.Game.ShortcutBase;
-import com.GameInterface.Game.ShortcutData;
 
 class com.theck.GodMode.GodMode 
 {
 	static var debugMode:Boolean = false;
 	
 	// Version
-	static var version:String = "0.55";
+	static var version:String = "1.0";
 	
 	// Signals
 	//static var SubtitleSignal:Signal;
@@ -76,6 +74,7 @@ class com.theck.GodMode.GodMode
 		Config.NewSetting("color", DEFAULT_COLOR, "");
 		Config.NewSetting("textlog", false, "");
 		Config.NewSetting("stats", false, "");
+		Config.NewSetting("stats_all", false, "");
 		
 		// Create GUI
 		clip = m_swfRoot.createEmptyMovieClip("GodMode", m_swfRoot.getNextHighestDepth());
@@ -300,13 +299,7 @@ class com.theck.GodMode.GodMode
 	
 	private function EnterCombat() {
 		
-		Debug("CM: entered combat");
-		
-		// if AL is active and we didn't already register that, fix auto_loader_counter
-		if ( m_player.m_InvisibleBuffList[9257112] && auto_loader_counter == 0 ) {
-			auto_loader_counter = 0.5;
-		}
-		Debug("alc=" + auto_loader_counter);
+		Debug("EC: entered combat, alc=" + auto_loader_counter);
 		
 		// update the combat time 
 		last_combat_time = getTimer();
@@ -318,32 +311,46 @@ class com.theck.GodMode.GodMode
 	}
 		
 	private function ParseCompletedCast(id:Number, type:Number) {
+		// notes on behavior when entering combat:
+		// Observed orders: combat, BF;  BF, combat
+		// When entering combat with a Burst Fire, sometimes the game resolves the BF cast before the enter combat event, leading to the "triggered before combat" debug message
+		// And other times, it works as expected (enter combat, burst fire completes), leading to the "triggered in combat" debug message.
+		
+		// Observed orders: combat, grenade (, AL-), BF ;  BF, combat, grenade (, AL-); 
+		// When a grenade is procced with the first BF upon entering combat, the BF can similarly occur before or after combat. However, the grenade proc always follows combat (i.e. never combat, BF, grenade)
+		// So you'll either get the "before combat" or "cast while grenade active" debug messages, never the "triggered in combat" one.
+		
+		// behavior when already in combat
+		// If you were already in combat when the BF was cast, the order is always BF, grenade (, AL-) and leads to the "triggered in combat" debug message
+		
 		
 		// filter on type, 32 means the cooldown has started
+		// "6806479": "Burst Fire",
 		if ( last_used_id == 6806479 && id == 6806479 && type == 32 ) {
 			
-			// don't count this BF if grenade is already active
+			// don't count this BF if grenade is already active,     "9255809": "Grenade",
 			if ( ! m_player.m_InvisibleBuffList[9255809] ) {
 				
 				if ( m_player.IsInCombat() ) {
-					IncrementBFAggregator();				
+					IncrementBFAggregator();
+					Debug("PCC: triggered in combat");
+					if ( m_player.m_InvisibleBuffList[9257112] ) {
+						OnGodModeTriggered();
+					}
 				}
 				else {
 					setTimeout(Delegate.create(this, IncrementBFAggregator), 100);
-					Debug("OCT: triggered before combat");
+					Debug("PCC: triggered before combat");
 				}	
 			}
 			else {
-				Debug("OCT: BF cast while grenade already active");
+				Debug("PCC: BF cast while grenade already active");
 			}
 			last_used_id = 0;
 		}
 	}
 	
-	private function OnInvisibleBuffAdded(id:Number) {
-		
-		// if AL procs
-		if ( id == 9257112 ) {
+	private function OnGodModeTriggered() {
 			
 			// update time aggregator setup
 			time_aggregator[auto_loader_counter] = ( getTimer() - last_combat_time );
@@ -360,7 +367,9 @@ class com.theck.GodMode.GodMode
 			}
 			
 			// increment AL counter
-			auto_loader_counter++;
+			if ( auto_loader_counter < 1 ) {
+				auto_loader_counter = 1;
+			}
 			
 			// initialize aggregators
 			bf_aggregator[auto_loader_counter] = 0;
@@ -374,21 +383,27 @@ class com.theck.GodMode.GodMode
 			if ( Config.GetValue("textlog") ) {
 				com.GameInterface.UtilsBase.PrintChatText("GM: Enabled - proc " + auto_loader_counter);
 			}
-		}
+	}
+	
+	private function OnInvisibleBuffAdded(id:Number) {
 		
 		// log grenades
-		else if ( id == 9255809 ) {
+		if ( id == 9255809 ) {
+			Debug("OIBA: Grenade proc")
 			if ( ! grenade_aggregator[auto_loader_counter] ) {
 				grenade_aggregator[auto_loader_counter] = 1;
-				//Debug("OIBA: grenade_agg undefined, set to 1")
+				
+				// This corrects for the case where you enter combat using BF and the grenade buff resolves before BF does.
+				if ( bf_aggregator[auto_loader_counter] == 0 ) {
+					bf_aggregator[auto_loader_counter ] = 1;
+				}
 			}
 			else {
 				grenade_aggregator[auto_loader_counter]++;
 			}
-			//Debug("OIBA: Grenades: " + grenade_aggregator[auto_loader_counter]);
 		}
 	}
-	
+		
 	private function LeaveCombat() {
 		
 		Debug("CM: left combat");
@@ -401,7 +416,7 @@ class com.theck.GodMode.GodMode
 		
 		// add to long-term variables for permanent storage
 		// skip if there are no BFs at all
-		if ( bf_aggregator[0] > 0 || bf_aggregator[0.5] > 0 ) {
+		if ( bf_aggregator[0] > 0 || bf_aggregator[1] > 0 ) {
 			for ( var i in bf_aggregator ) {
 				// initialize if we don't already have entries here
 				if ( ! long_term_bf_aggregator[i] ) { long_term_bf_aggregator[i] = 0 };
@@ -417,23 +432,18 @@ class com.theck.GodMode.GodMode
 				
 		// report stats if enabled
 		if ( Config.GetValue("stats", false) ) {
-			ReportStats(grenade_aggregator, bf_aggregator, time_aggregator, auto_loader_counter, "Current");
+			ReportStats(grenade_aggregator, bf_aggregator, time_aggregator, "Current Encounter");
+		}
+		if ( Config.GetValue("stats_all", false) ) {
 			ReportOverallStats();
 		}
 		
-		// TODO: move this to entering combat? Should be OK because we're delaying counting until after combat has registered? Or will this mess up grenades (e.g. grenade proc before combat registers)
-		// if you end combat with an Auto-Loader buff, you retain the bonus for next combat
-		if ( m_player.m_InvisibleBuffList[9257112] ) {
-			auto_loader_counter = 0.5;
-		}
-		// otherwise you lose it
-		else {
-			auto_loader_counter = 0;
-		}
+		// Clear god mode when leaving combat
+		ResetAutoLoaderCounter();
 		
 		// update display
 		UpdateDisplay();
-				
+	
 		// Clear stats for next combat
 		ClearAccumulators();
 	}
@@ -475,18 +485,15 @@ class com.theck.GodMode.GodMode
 	//////////////////////////////////////////////////////////
 	
 	
-	private function ReportStats(g_agg:Object, b_agg:Object, t_agg:Object, alc:Number, text:String) {
+	private function ReportStats(g_agg:Object, b_agg:Object, t_agg:Object, text:String) {
 		Print("God Mode Stats Report: " + text);
 		var bf_total:Number = 0;
 		var grenade_total:Number = 0;
 		var time_total:Number = 0;
 		
-		var firstindex:Number = 0;
-		if ( ! b_agg[0] && b_agg[0.5] ) { firstindex = 0.5 };
-		
-		Print ( " AL     BF      G       t         %      GPM");
+		Print ( " GM     BF      G       t         %      GPM");
 			
-		for (var i:Number = firstindex; i <= alc; i++ ) {
+		for (var i:Number = 0; i <= 1; i++ ) {
 			var bfpct:Number = Math.round( g_agg[i] / Math.max( b_agg[i], 1) * 1000 ) / 10;
 			var gpm:Number = Math.round( g_agg[i] / Math.max(t_agg[i], 1) * 60000 * 10 ) / 10;
 			bf_total += b_agg[i];
@@ -530,11 +537,10 @@ class com.theck.GodMode.GodMode
 		var g_agg:Object = long_term_grenade_aggregator;
 		var t_agg:Object = long_term_time_aggregator;
 		
-		Print ( " AL     BF      G       t         %      GPM");
+		Print ( " GM     BF      G       t         %      GPM");
 		
-		// these can have integer and half-integer values. Loop on half-integers and see if there's any data, if not, skip
-		// loop to 50, that should be sufficient
-		for (var i:Number = 0; i <= 50; i = i + 0.5 ) {
+		// this is limited to 0 and 1 now, as we're no longer tracking # of auto-loader procs
+		for (var i:Number = 0; i <= 1; i++ ) {
 			if ( ( b_agg[i] != undefined ) && ( g_agg[i] != undefined ) && ( t_agg[i] != undefined ) ) {
 				var bfpct:Number = Math.round( g_agg[i] / Math.max( b_agg[i], 1) * 1000 ) / 10;
 				var gpm:Number = Math.round( g_agg[i] / Math.max(t_agg[i], 1) * 60000 * 10 ) / 10;
@@ -574,14 +580,6 @@ class com.theck.GodMode.GodMode
 			Shortcut.SignalShortcutUsed.Connect(OnShortcutUsed, this);
 			WaypointInterface.SignalPlayfieldChanged.Connect(ResetAutoLoaderCounter, this);
 			
-			
-			// not used
-			//m_player.SignalCommandStarted.Connect(OnCommandStarted, this);
-			//m_player.SignalCommandEnded.Connect(OnCommandEnded, this);
-			//m_player.SignalCommandAborted.Connect(OnCommandAborted, this);
-			//GlobalSignal.SignalDamageNumberInfo.Connect(OnDamageNumberInfo, this);
-			//GlobalSignal.SignalDamageTextInfo.Connect(OnDamageTextInfo, this);
-			//Shortcut.SignalShortcutAddedToQueue.Connect(OnShortcutAddedToQueue, this);
 		}
 		else {
 			// disconnect signals
@@ -629,103 +627,7 @@ class com.theck.GodMode.GodMode
 		else {
 			LeaveCombat();
 		}
-		
-/*		if ( ! state ) {
-			Debug("CM: left combat");
-			if ( Config.GetValue("textlog") ) {
-				com.GameInterface.UtilsBase.PrintChatText("GM: Left Combat - proc " + auto_loader_counter);
-			}
-			
-			// update time aggregator
-			time_aggregator[auto_loader_counter] = ( getTimer() - last_combat_time );
-			//Debug("CM: t_a[" + auto_loader_counter + "]=" + time_aggregator[auto_loader_counter] );
-			last_combat_time = undefined;
-			
-			// add to long-term variables for permanent storage
-			// skip if there are no BFs at all
-			if ( bf_aggregator[0] > 0 || bf_aggregator[0.5] > 0 ) {
-				for ( var i in bf_aggregator ) {
-					// initialize if we don't already have entries here
-					if ( ! long_term_bf_aggregator[i] ) { long_term_bf_aggregator[i] = 0 };
-					if ( ! long_term_grenade_aggregator[i] ) { long_term_grenade_aggregator[i] = 0 };
-					if ( ! long_term_time_aggregator[i] ) { long_term_time_aggregator[i] = 0 };
-					
-					// add to aggregators
-					long_term_bf_aggregator[i] += bf_aggregator[i];
-					long_term_grenade_aggregator[i] += grenade_aggregator[i];
-					long_term_time_aggregator[i] += time_aggregator[i];
-				}
-			}
-			
-			
-			// report stats if enabled
-			if ( Config.GetValue("stats", false) ) {
-				ReportStats(grenade_aggregator, bf_aggregator, time_aggregator, auto_loader_counter, "Current");
-				//ReportStats(long_term_grenade_aggregator, long_term_bf_aggregator, long_term_time_aggregator, auto_loader_counter, "Overall");
-				ReportOverallStats();
-			}
-			
-			// TODO: move this to entering combat? Should be OK because we're delaying counting until after combat has registered? Or will this mess up grenades (e.g. grenade proc before combat registers)
-			// if you end combat with an Auto-Loader buff, you retain the bonus for next combat
-			if ( m_player.m_InvisibleBuffList[9257112] ) {
-				auto_loader_counter = 0.5;
-			}
-			// otherwise you lose it
-			else {
-				auto_loader_counter = 0;
-			}
-			
-			UpdateDisplay();
-			
-			
-			// Clear stats for next combat
-			ClearAccumulators();
-		}
-		
-		// on entering combat
-		else {
-			Debug("CM: entered combat");
-			if ( m_player.m_InvisibleBuffList[9257112] ) {
-				Debug("CM: AL present");
-			}
-			else {
-				Debug("CM: AL not present");
-			}
-			//Debug("CM: AL is present=" + m_player.m_BuffList[9257112] );
-			Debug("alc=" + auto_loader_counter);
-			last_combat_time = getTimer();
-			bf_aggregator[auto_loader_counter] = 0;
-			grenade_aggregator[auto_loader_counter] = 0;
-			time_aggregator[auto_loader_counter] = 0;
-			//Debug("CM: g_a=" + grenade_aggregator[auto_loader_counter]);
-		}*/
-	}
-	
-/*	// None of these are used anymore
-	private function OnCommandStarted(spell:Object) {
-		Debug("OCS " + spell );
-	}
-	private function OnCommandEnded() {
-		Debug("OCE, combat=" + m_player.IsInCombat() );
-	}
-	private function OnCommandAborted() {
-		Debug("OCA");
-	}
-	
-	private function OnDamageNumberInfo(statID:Number,damage:Number,absorb:Number, attackResultType:Number, attackType:Number,  attackOffensiveLevel:Number, attackDefensiveLevel:Number, context:Number, targetID:ID32, iconID:ID32, iconColorLine:Number, combatLogFeedbackType:Number) {
-		Debug("ODNI: context=" + context + ", iconId=" + iconID + ", clft=" + combatLogFeedbackType + ", attackType=" + attackType);
-	}
-	
-	private function OnDamageTextInfo(text:String, context:Number, targetID:ID32) {
-		Debug("ODTI: text=" + text + ", context=" + context + ", targetId=" + targetID);
-	}
-	
-	private function OnShortcutAddedToQueue(itemPos:Number) {
-		Debug("OSATQ: itemPos=" + itemPos);		
-	}*/
-	
-
-	
+	}	
 	
 	//////////////////////////////////////////////////////////
 	// Debugging
